@@ -1,0 +1,3 @@
+Gazebo camera plugins:
+
+https://sir.upc.edu/projects/rostutorials/9-gazebo_sensors_tutorial/index.html

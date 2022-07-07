@@ -1,0 +1,3 @@
+/home/ezkaitor/catkin_ws/src/drone-test/include/plugins/build/CMakeFiles/rebuild_cache.dir
+/home/ezkaitor/catkin_ws/src/drone-test/include/plugins/build/CMakeFiles/edit_cache.dir
+/home/ezkaitor/catkin_ws/src/drone-test/include/plugins/build/CMakeFiles/drone_plugin.dir

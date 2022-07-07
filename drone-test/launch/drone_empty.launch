@@ -1,0 +1,23 @@
+<launch>
+  <arg name="x_pos" default="2.5"/>
+  <arg name="y_pos" default="2.5"/>
+  <arg name="z_pos" default="0.0"/>
+
+
+
+  <include file="$(find gazebo_ros)/launch/empty_world.launch">
+    <arg name="world_name" value="$(find drone-test)/assets/empty.world"/>
+    <arg name="paused" value="false"/>
+    <arg name="use_sim_time" value="true"/>
+    <arg name="gui" value="true"/>
+    <arg name="headless" value="false"/>
+    <arg name="debug" value="false"/>
+  </include>
+
+ 
+
+  <node pkg="gazebo_ros" type="spawn_model" name="spawn_sdf" args="-sdf -model arducopter -file $(find drone-test)/models/iris_with_standoffs/model.sdf -x $(arg x_pos) -y $(arg y_pos) -z $(arg z_pos)" />
+  <node pkg="gazebo_ros" type="spawn_model" name="spawn_urdf" args="-urdf -model test -file $(find drone-test)/models/iris_with_standoffs/test.urdf -x -5 -y 2.5 -z 0.0" />
+  <!--<node name="rviz" pkg="rviz" type="rviz" args="-d $(find ttb_slam)/config_files/ttb3_gazebo_model.rviz -f 'world'"/> -->
+ 
+</launch>

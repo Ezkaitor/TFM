@@ -1,0 +1,30 @@
+https://github.com/darkshilva/RPG_sim_OD
+https://github.com/tu-darmstadt-ros-pkg/image_projection
+
+Multicamera architecture
+https://ieeexplore.ieee.org/document/8869096
+
+Occlussions
+https://ieeexplore.ieee.org/document/7989033
+
+Related papers (interesting references)
+Gazebo +ROS +PX4 -> https://ieeexplore.ieee.org/document/9087391/references#references
+Deep learning hands + UAV -> https://ieeexplore.ieee.org/document/8396188
+Avoidance with YOLO -> https://ieeexplore.ieee.org/document/9476793
+
+Drone
+Prropeller parameters -> https://github.com/PX4/PX4-SITL_gazebo/issues/110
+			https://m-selig.ae.illinois.edu/props/propDB.html
+
+
+Mavlink
+Camera Protocol -> https://mavlink.io/en/services/camera.html#camera_identification
+Mavsdk -> https://github.com/mavlink/MAVSDK-Python
+
+PX4
+PID Tuning -> https://docs.px4.io/master/en/config_mc/pid_tuning_guide_multicopter.html
+
+NCS
+NOTE: check mobilenet, already implemented in NCS and check compatibility with ros
+YOLO + NCS -> https://github.com/gudovskiy/yoloNCS
+NCS and RaspberryPi -> https://www.keymolen.com/2020/04/run-yolov3-on-raspberry-pi-with-intel.html?m=1

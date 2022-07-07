@@ -1,0 +1,14 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/ezkaitor/catkin_ws/src/drone-test/include/plugins/drone_move.cc
+gazebo-11/gazebo.hh
+-
+gazebo-11/physics/physics.hh
+-
+
