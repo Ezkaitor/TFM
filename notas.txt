@@ -1,0 +1,4 @@
+COCO metrics
+Primero un threshold de probabilidad -> Se saca el falso negativo
+Hay que hacer la division entre intersección y unión, acotar un threshold minimo.
+Sumatorio daria los falsos positivos y los positiovos positiovos

@@ -28,3 +28,11 @@ NCS
 NOTE: check mobilenet, already implemented in NCS and check compatibility with ros
 YOLO + NCS -> https://github.com/gudovskiy/yoloNCS
 NCS and RaspberryPi -> https://www.keymolen.com/2020/04/run-yolov3-on-raspberry-pi-with-intel.html?m=1
+
+
+
+Paper pendant to read
+https://www.researchgate.net/publication/290625551_Unmanned_Aerial_Vehicles_UAVs_and_Artificial_Intelligence_Revolutionizing_Wildlife_Monitoring_and_Conservation
+https://ieeexplore.ieee.org/document/7578405
+https://ieeexplore.ieee.org/document/8396603
+https://proceedings.neurips.cc/paper/2012/file/c399862d3b9d6b76c8436e924a68c45b-Paper.pdf

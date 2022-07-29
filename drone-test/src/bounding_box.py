@@ -16,7 +16,8 @@ class ImageOccupation:
 
         self.camera_info_tp = rospy.Subscriber('iris/camera/camera_info', CameraInfo, self.get_camera_info)
         self.front_camera_tp = rospy.Subscriber('iris/camera/image_raw', Image, self.get_image)
-        self.bounding_boxes_tp = rospy.Subscriber('darknet_ros/bounding_boxes', BoundingBoxes, self.boxes)
+        #self.bounding_boxes_tp = rospy.Subscriber('darknet_ros/bounding_boxes', BoundingBoxes, self.boxes)
+        self.bounding_boxes_tp = rospy.Subscriber('mobilenet_ros/bounding_boxes', BoundingBoxes, self.boxes)
 
         self.occupation_map_tp = rospy.Publisher('iris/occupation_map', Image, queue_size=1)
 

@@ -1,0 +1,21 @@
+Installation steps for OpenVino and NCS1
+Download openvino 2020.3.355 offline installation from :
+https://www.intel.com/content/www/us/en/developer/tools/openvino-toolkit/download.html
+
+Unzip the tar file
+Execute install_GUI.sh and follow the steps (install dependencies if required)
+Folder is saved in /opt/intel/openvino_2020.3.355/
+
+In install_dependencies execute install_openvino_dependencies.sh
+
+Setup environment
+source /opt/intel/openvino_2020.3.355/bin/setupvars.sh
+(optionally add it to /.bashrc)
+
+Check if NCS is detected (python)
+python3 check_NCS_device.py
+
+Try demo
+bash openvino_2020.3.355/deployment_tools/demo/demo_security_barrier_camera.sh -d MYRIAD
+
+Download and Convert model
