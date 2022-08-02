@@ -19,3 +19,23 @@ Try demo
 bash openvino_2020.3.355/deployment_tools/demo/demo_security_barrier_camera.sh -d MYRIAD
 
 Download and Convert model
+
+######################################3
+Install PX4
+
+git clone https://github.com/PX4/Firmware.git
+
+cd Firmware
+bash Tools/setup/ubuntu.sh
+
+# NOTE: if python <3.8 need to change Firmware/Tools/setup/requirements.txt
+# git checkout 435a474dffeabb10fd26d54f3f99039f99799c26
+
+# Error with mavlink_sitl_gazebo build
+# Couldn't find development/mavlink.h
+
+Install mavros
+Go to /opt/ros/$ROSDISTRO/mavlink/v2.0
+copy all into ~/catkin_ws/src/sitl_gazebo/include
+
+
