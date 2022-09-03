@@ -1,5 +1,3 @@
-#!/usr/bin/python3
-
 import rospy
 
 import numpy as np
@@ -11,7 +9,6 @@ from sensor_msgs.msg import Image, CameraInfo
 
 from std_msgs.msg import Header
 
-rospy.init_node("bounding_box")
 
 class ImageOccupation:
     def __init__(self):
@@ -67,12 +64,8 @@ class ImageOccupation:
             #cv2.destroyAllWindows()
 
 
-def main():
-    
+rospy.init_node("bounding_box")
 
-    img_occ = ImageOccupation()
+img_occ = ImageOccupation()
 
-    rospy.spin()
-
-if __name__ == "__main__":
-    main()
+rospy.spin()

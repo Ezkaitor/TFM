@@ -103,8 +103,8 @@ def main():
     drone.set_mode_srv(0, "OFFBOARD")
     #drone.set_takeoff(3, 5)
     drone.reach_local_position((0,0,2.5))
-    drone.reach_local_position((10,1,3))
-    drone.reach_local_position((0,0,3))
+    drone.reach_local_position((-5,0,3))
+    #drone.reach_local_position((0,0,3))
 
     drone.set_land(5)
     

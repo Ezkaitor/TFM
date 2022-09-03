@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+<launch>
+    <arg name="avoidance" default="True"/>
+    <arg name="algorithm" default="mobilenet"/>
+    <node pkg="drone-test" name="drone" type="drone_comm.py" output="screen" args="-al $(arg algorithm) -a $(arg avoidance)"> 
+    </node>
+</launch>

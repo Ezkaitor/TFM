@@ -92,7 +92,7 @@ def main():
 
     def publish_point(*args, **kwargs):
         drone.global_target.publish(drone.point)
-    alt = 20
+    alt = 5
     alt += drone.altitude.amsl - drone.altitude.relative
     rospy.loginfo(drone.state)
     drone.set_arm(True, 5)
@@ -108,7 +108,7 @@ def main():
     alt = 10
     alt += drone.altitude.amsl - drone.altitude.relative
 
-    drone.reach_position((47.39773941040039, 25.5455904006958, alt))
+    #drone.reach_position((47.39773941040039, 25.5455904006958, alt))
 
     #reach_position(drone, 47.39773941040039, 8.54559326171875, alt, 60, 1)
     #drone.wait_for_vtol_state(0, 60, 0)

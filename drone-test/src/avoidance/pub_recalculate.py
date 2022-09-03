@@ -1,5 +1,3 @@
-#!/usr/bin/python3
-
 import rospy
 import numpy as np
 
@@ -31,10 +29,8 @@ rospy.init_node("recalculate_node")
 occupation_tp = rospy.Subscriber("iris/occupation_map", Image, occupation_cb)
 recalculate_pub = rospy.Publisher("mavros/recalculate", Bool, queue_size=1)
 
-rate = rospy.Rate(2)
 
-while not rospy.is_shutdown():
-    rate.sleep()
 
+rospy.spin()
 
 

@@ -2,3 +2,9 @@ launch.json
 *.bin
 *.mapping
 *.odt#
+*.dae
+*.last_generated
+
+settings.json
+
+*__pycache__
