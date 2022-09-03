@@ -1,0 +1,5 @@
+<?xml version="1.0"?>
+<launch>
+    <node pkg="drone-test" name="api" type="drone_api.py" output="screen"> 
+    </node>
+</launch>
