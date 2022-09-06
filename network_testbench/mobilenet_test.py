@@ -23,7 +23,7 @@ labels_map = {0: '__background__', 1: 'person', 2: 'bicycle', 3: 'car', 4: 'moto
 #### INITIALIZE DEVICE ####
 ie = IECore()
 
-ncs_model_path = Path("/home/aitor/repos/TFM/drone-test/NCS_models/mobilenet_ssd")
+ncs_model_path = Path.home() / "repos/TFM/drone-test/NCS_models/mobilenet_ssd"
 
 network = ie.read_network(str(ncs_model_path/(ncs_model_path.name+".xml")), str(ncs_model_path/(ncs_model_path.name+".bin"))) # TODO: make it realtive path
 
@@ -43,10 +43,11 @@ assert len(network.outputs) == 1, "Demo supports only single output topologies"
 out_blob = next(iter(network.outputs))
 
 print("Checking device...")
-if "MYRIAD" in ie.available_devices: device="MYRIAD"
-else:
-    device="CPU"
-    print("MYRIAD device is not plugged.")
+device="CPU"
+#if "MYRIAD" in ie.available_devices: device="MYRIAD"
+#else:
+#    device="CPU"
+#    print("MYRIAD device is not plugged.")
 
 print("Loading IR to the plugin...")
 exec_network = ie.load_network(network=network, num_requests=2, device_name=device)
@@ -59,13 +60,13 @@ if img_info_input_blob:
 ########################
 ### Start rospy node ###
 
-dataset_path = Path("/home/aitor/datasets/val2017")
-#dataset_path = Path("/home/aitor/datasets/val2017_test")
+dataset_path = Path("/home/aitorezkerra/datasets/val2017")
+#dataset_path = Path("/home/aitorezkerra/datasets/val2017_test")
 
 results = []
 time_elapsed = []
 for image_path in tqdm(dataset_path.iterdir()):
-    image_id = int(image_path.stem.strip('0'))
+    image_id = int(image_path.stem.lstrip('0'))
     image_raw = cv.imread(str(image_path))
     image_size = image_raw.shape
 

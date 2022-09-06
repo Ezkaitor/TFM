@@ -2,9 +2,12 @@ from importlib.abc import Loader
 import json
 from unittest import loader
 
-results_file_m = "/home/aitor/repos/TFM/network_testbench/mobilenet_results_MYRIAD.json"
-results_file = "/home/aitor/repos/TFM/network_testbench/mobilenet_results_MYRIAD_comp.json"
-reference_file = "/home/aitor/datasets/annotations_trainval2017/annotations/instances_val2017.json"
+from pathlib import Path
+
+home_path = Path.home()
+results_file_m = home_path / "repos/TFM/network_testbench/mobilenet_results_MYRIAD.json"
+results_file = home_path / "repos/TFM/network_testbench/mobilenet_results_MYRIAD_comp.json"
+reference_file = home_path / "datasets/annotations_trainval2017/annotations/instances_val2017.json"
 
 with open(results_file, 'r') as f:
     results = json.load(f)
