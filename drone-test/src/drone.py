@@ -17,8 +17,8 @@ class Drone():
 
     def __init__(self, *args):
         super(Drone, self).__init__(*args)
-        self.recalculate = False
         self.flying = False
+        self.temp_target = None
 
     def setUp(self):
         self.altitude = Altitude()
@@ -80,14 +80,15 @@ class Drone():
                                               self.local_position_callback)
         self.state_sub = rospy.Subscriber('mavros/state', State,
                                           self.state_callback)
-
-        self.recalculate_sub = rospy.Subscriber('mavros/recalculate', Bool, self.recalculate_callback)
+        self.temp_target_sub = rospy.Subscriber('mavros/setpoint_raw/temp', PositionTarget, self.get_temp_target)
 
         self.mission_item_reached = -1  # first mission item is 0
         #self.mission_name = ""
 
         self.mavlink_pub = rospy.Publisher('mavlink/to', Mavlink, queue_size=1)
         self.local_target = rospy.Publisher('mavros/setpoint_raw/local', PositionTarget, queue_size=1)
+        
+        
         self.global_target = rospy.Publisher('mavros/setpoint_raw/global', GlobalPositionTarget, queue_size=1)
         
 
@@ -185,13 +186,6 @@ class Drone():
         if not self.sub_topics_ready['state'] and data.connected:
             self.sub_topics_ready['state'] = True
 
-    def recalculate_callback(self, data):
-        if self.flying:
-            if self.local_position.pose.position.z > 2:
-                if not self.recalculate:
-                    self.recalculate = True
-                    self.reach_local_position((self.local_position.pose.position.x, self.local_position.pose.position.y + 1, self.local_position.pose.position.z), adjust=True)
-        #self.recalculate = data
     #
     # Helper methods
     #
@@ -293,34 +287,6 @@ class Drone():
                 rate.sleep()
             except rospy.ROSException as e:
                 print(e)
-
-    '''
-    def set_param(self, param_id, param_value, timeout):
-        """param: PX4 param string, ParamValue, timeout(int): seconds"""
-        if param_value.integer != 0:
-            value = param_value.integer
-        else:
-            value = param_value.real
-        rospy.loginfo("setting PX4 parameter: {0} with value {1}".
-        format(param_id, value))
-        loop_freq = 1  # Hz
-        rate = rospy.Rate(loop_freq)
-        param_set = False
-        for i in range(timeout * loop_freq):
-            try:
-                res = self.set_param_srv(param_id, param_value)
-                if res.success:
-                    rospy.loginfo("param {0} set to {1} | seconds: {2} of {3}".
-                    format(param_id, value, i / loop_freq, timeout))
-                break
-            except rospy.ServiceException as e:
-                rospy.logerr(e)
-
-            try:
-                rate.sleep()
-            except rospy.ROSException as e:
-                print(e)
-    '''
 
     def wait_for_topics(self, timeout):
         """wait for simulation to be ready, make sure we're getting topic info
@@ -459,7 +425,8 @@ class Drone():
                 # TODO: set mode offboard?
             self.takeoff_position = [0, 0, 0]
             self.takeoff_position[2] += altitude
-            self.reach_local_position(self.takeoff_position)#, avoidance=False)
+            self.set_mode_srv(0, "OFFBOARD")
+            self.reach_local_position(self.takeoff_position, vx=0, vy=0, vz=0, mask=4088)#, avoidance=False)
             #self.set_mode_srv(0, "AUTO.TAKEOFF")
             # TODO: wait for drone to get to point
             
@@ -494,10 +461,8 @@ class Drone():
         raw_msg.longitude = long
         raw_msg.latitude = lat
         raw_msg.altitude = self.altitude.amsl - alt
-        self.point = raw_msg
-        #raw_msg.velocity.x = vx
-        #raw_msg.velocity.y = vy
-        #raw_msg.yaw        = yaw
+
+        
         rate = rospy.Rate(2)  # Hz
         #while not rospy.is_shutdown():
         for i in range(10):
@@ -507,14 +472,50 @@ class Drone():
             except rospy.ROSInterruptException:
                 pass
     
-    def reach_local_position(self, position, adjust=False):
+
+    def calculate_velocities(self, position_target):
+
+        maxVel = 1
+        minVel = 0.4
+        position_target.velocity.x = (position_target.position.x - self.local_position.pose.position.x)/10
+        position_target.velocity.y = (position_target.position.y - self.local_position.pose.position.y)/10
+        position_target.velocity.z = (position_target.position.z - self.local_position.pose.position.z)/10
+
+        if position_target.velocity.x > maxVel : position_target.velocity.x = maxVel
+        if position_target.velocity.y > maxVel : position_target.velocity.y = maxVel
+        if position_target.velocity.z > maxVel : position_target.velocity.z = maxVel
+
+        if position_target.velocity.x < -maxVel : position_target.velocity.x = -maxVel
+        if position_target.velocity.y < -maxVel : position_target.velocity.y = -maxVel
+        if position_target.velocity.z < -maxVel : position_target.velocity.z = -maxVel
+
+        if abs(position_target.velocity.x) < 0.02 : position_target.velocity.x = 0
+        if abs(position_target.velocity.y) < 0.02 : position_target.velocity.y = 0
+        if abs(position_target.velocity.z) < 0.02 : position_target.velocity.z = 0
+
+        if position_target.velocity.x > -minVel and position_target.velocity.x < 0 : position_target.velocity.x = -minVel
+        if position_target.velocity.y > -minVel and position_target.velocity.y < 0 : position_target.velocity.y = -minVel
+        if position_target.velocity.z > -minVel and position_target.velocity.z < 0 : position_target.velocity.z = -minVel
+
+        if position_target.velocity.x < minVel and position_target.velocity.x > 0 : position_target.velocity.x = minVel
+        if position_target.velocity.y < minVel and position_target.velocity.y > 0 : position_target.velocity.y = minVel
+        if position_target.velocity.z < minVel and position_target.velocity.z > 0 : position_target.velocity.z = minVel
+
+        return position_target
+    def get_temp_target(self, target):
+        
+        if target.header.frame_id == "none":
+            self.temp_target = None
+        else:
+            self.temp_target = target
+
+    def reach_local_position(self, position, vx=0.2, vy=0.2, vz=0.2, mask=4064):
         #self.set_mode("OFFBOARD", timeout=10)
         long, lat, alt = position
         #gb_pos = GlobalPositionTarget(longitude=long, latitude= lat, altitude=alt)
         p = Point(x=long, y=lat, z=alt)
         raw_msg = PositionTarget()
 
-        mask = 4088
         raw_msg.header.frame_id = "home"
         raw_msg.header.stamp = rospy.Time.now()
         raw_msg.coordinate_frame = 1
@@ -522,37 +523,57 @@ class Drone():
         raw_msg.position.x = long
         raw_msg.position.y = lat
         raw_msg.position.z = alt
-        self.point = raw_msg
+        
+        #raw_msg.velocity.x = vx
+        #raw_msg.velocity.y = vy
+        #raw_msg.velocity.z = vz
+        
 
         rate = rospy.Rate(2)  # Hz
-        #self.recalculate = False
+        
         while not rospy.is_shutdown():
             self.point_reached = False
             while not self.point_reached:
-                #if self.recalculate:
-                #    self.recalculate = False
-                #    new_position = (1,0,3)
-                #    self.reach_local_position(new_position)
-                #    self.point_reached = False
-                #else:
-                self.flying = True
-                if self.recalculate == adjust:
+
+                '''
+                # Constant speed
+                if self.local_position.pose.position.x > long: raw_msg.velocity.x = -vx
+                else: raw_msg.velocity.x = vx
+                if self.local_position.pose.position.y > lat: raw_msg.velocity.y = -vy
+                else: raw_msg.velocity.y = vy
+                if self.local_position.pose.position.z > alt: raw_msg.velocity.z = -vz
+                else: raw_msg.velocity.z = vz
+                
+                if abs(self.local_position.pose.position.x - raw_msg.position.x) < 0.2: raw_msg.velocity.x = 0
+                if abs(self.local_position.pose.position.y - raw_msg.position.y) < 0.2: raw_msg.velocity.y = 0
+                if abs(self.local_position.pose.position.z - raw_msg.position.z) < 0.2: raw_msg.velocity.z = 0
+                '''
+                
+                if self.temp_target is not None:
+                    if mask !=4088:
+                        pass#self.temp_target = self.calculate_velocities(self.temp_target)
+                    self.local_target.type_mask = 4088
+                    self.local_target.publish(self.temp_target)
+                    print("Moving to:", self.temp_target)
+                else:
+                    if mask !=4088:
+                        raw_msg = self.calculate_velocities(raw_msg)
+                    raw_msg.type_mask = 4088
                     self.local_target.publish(raw_msg)
-                    print(raw_msg.position)
+                    print("Moving to:", raw_msg)
+
+                
                 if abs(self.local_position.pose.position.x - raw_msg.position.x) < 0.2 and \
                     abs(self.local_position.pose.position.y - raw_msg.position.y) < 0.2 and \
                     abs(self.local_position.pose.position.z - raw_msg.position.z) < 0.2:
                     self.point_reached = True
-                    self.flying = False
-                    if adjust:
-                        self.recalculate=False
                     rospy.loginfo("Local Position x: {0}, y: {1}, z: {2} reached.".format( \
                                     raw_msg.position.x, raw_msg.position.y, raw_msg.position.z))
+                    return self.point_reached
                 try:  # prevent garbage in console output when thread is killed
                     rate.sleep()
                 except rospy.ROSInterruptException:
                     pass
-            if self.point_reached: return True
 
 if __name__ == "__main__":
     rospy.init_node("test_node", anonymous=True)

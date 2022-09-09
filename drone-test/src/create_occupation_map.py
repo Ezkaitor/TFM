@@ -1,5 +1,7 @@
 #!/usr/bin/python3
 
+import time
+
 import rospy
 
 import numpy as np
@@ -17,6 +19,8 @@ from safe_space import create_safe_zone
 
 rospy.init_node("bounding_box")
 
+
+VISUALIZE = False
 FOV = 80
 
 
@@ -60,6 +64,7 @@ class ImageOccupation:
         self.current_position_sub = rospy.Subscriber("mavros/local_position/pose", PoseStamped, self.get_current_pose)
 
         self.occupation_map_tp = rospy.Publisher('iris/occupation_map', Image, queue_size=1)
+        self.new_target_pub = rospy.Publisher('mavros/setpoint_raw/temp', PositionTarget, queue_size=1)
 
         self.truth_map = {  "CamInfo": False,
                             "BBoxes": False,
@@ -68,7 +73,9 @@ class ImageOccupation:
                             "Goal": False,
                             }
         
+        self.new_goal = None
         self.cameras = {}
+        self.no_detect = time.time()
     
     def get_current_pose(self, msg):
         pose = msg.pose
@@ -116,44 +123,81 @@ class ImageOccupation:
             
             occupation_image = (self.cameras[msg.header.frame_id] * 255).astype(np.uint8)
             
+            #self.goal_point = [-10, 2, 1.5]
+            #self.truth_map["Goal"] = True
             if self.truth_map["Goal"] and self.truth_map["Current"]: # TODO: set to false when goal reached
                 
-                # HACK: set borders as obstacles for a better voronoi
-                # TODO: check what happenswith multiple cameras
-                #occupation_image[0,:] = 255
-                #occupation_image[-1,:] = 255
-                #occupation_image[:, 0] = 255
-                #occupation_image[:, -1] = 255
+                full, gradient = create_safe_zone(occupation_image, 200)
 
-                full, gradient = create_safe_zone(occupation_image, 50)
-                #gradient = (gradient * 255).astype(np.uint8)
+                # Check if goal in sight line
+                #if goal_x > self.image_size[0]:
+                #    pass # Goal out of sight in x axis
+                #if goal_y > self.image_size[1]:
+                #    pass # Goal out of sight in y axis
 
+                if self.new_goal is not None and self.new_goal==self.goal_point:
+                    self.goal_point = self.main_goal
                 # Goal point in image
-                goal_x = (self.image_size[0]/2)*(self.goal_point[1]-self.current_position[0])/(self.goal_point[0]*math.sin(math.radians(FOV/2))/math.sin(math.radians(90))) # NOTE: now it is x, change to focusing drone
+                # TODO: Get the angles as they affect the point in the camera !!!!
+                #NOTE: distance to go slower to obstacle and faster to gap
+                goal_x = (self.image_size[0]/2)*(self.goal_point[1]-self.current_position[0])/(self.goal_point[0]*math.sin(math.radians(FOV/2))/math.sin(math.radians(270))) # NOTE: now it is x, change to focusing drone
                 goal_y = (self.image_size[1]/2)*(self.goal_point[2]-self.current_position[2])/(self.goal_point[0]*math.sin(math.radians(FOV/2))/math.sin(math.radians(90))) # NOTE: now it is x, change to focusing drone
 
                 goal_x = int(goal_x+self.image_size[0]/2)
                 goal_y = int(goal_y+self.image_size[1]/2)
 
                 if full[goal_y,goal_x]:
+                    self.main_goal = np.copy(self.goal_point)
+                    
+
                     closest_goal = closest_from_boolmap([goal_y, goal_x], gradient)
+                    self.goal_point[0] = self.current_position[0] - 4
+                    new_goal = (closest_goal[1] - self.image_size[1]/2) * (self.goal_point[0]*math.sin(math.radians(FOV/2))/math.sin(math.radians(270))) / (self.image_size[0]/2) + self.current_position[0]
+                    new_goal_2 = (closest_goal[0] - self.image_size[1]/2) * (self.goal_point[0]*math.sin(math.radians(FOV/2))/math.sin(math.radians(90))) / (self.image_size[0]/2) + self.current_position[2]
+                    
+                    new_target = PositionTarget()
+                    mask = 4039
+                    new_target.header.frame_id = "home"
+                    new_target.header.stamp = rospy.Time.now()
+                    new_target.coordinate_frame = 1
+                    new_target.type_mask  = mask
+                    new_target.position.x = self.goal_point[0]
+                    new_target.position.y = new_goal
+                    new_target.position.z = new_goal_2
 
-                # Check if goal in sight line
-                if goal_x > self.image_size[0]:
-                    pass # Goal out of sight in x axis
-                if goal_y > self.image_size[1]:
-                    pass # Goal out of sight in y axis
+                    self.new_goal = [self.goal_point[0], new_goal, new_goal_2]
+
+                    
+                    
+
+                    self.new_target_pub.publish(new_target)
+
+                    rospy.loginfo("Publishing new target")
+
+
+                    self.no_detect = time.time()
                 
-                # Showing purposes
-                occupation_image = cv2.cvtColor(occupation_image, cv2.COLOR_GRAY2BGR)
-                occupation_image = cv2.circle(occupation_image, (goal_x, goal_y), radius=5, color=(0, 0, 255), thickness=-1)
-                occupation_image = cv2.circle(occupation_image, (closest_goal[1], closest_goal[0]), radius=5, color=(255, 0, 0), thickness=-1)
-                occupation_image[gradient] = (0,255,0)
+                else:
+                    if time.time()-self.no_detect > 4:
+                        new_target = PositionTarget()
+                        mask = 4039
+                        new_target.header.frame_id = "none"
+                        self.new_target_pub.publish(new_target)
 
-                #cv2.imshow("Gradient", gradient)
-            cv2.imshow("Occupation", occupation_image)
-            cv2.waitKey(0)
-            #self.occupation_map_tp.publish(truth_image)
+                        
+                
+                
+                if VISUALIZE:
+                    # Showing purposes
+                    occupation_image = cv2.cvtColor(occupation_image, cv2.COLOR_GRAY2BGR)
+                    occupation_image = cv2.circle(occupation_image, (goal_x, goal_y), radius=5, color=(0, 0, 255), thickness=-1)
+                    #occupation_image = cv2.circle(occupation_image, (closest_goal[1], closest_goal[0]), radius=5, color=(255, 0, 0), thickness=-1)
+                    occupation_image[gradient] = (0,255,0)
+
+                    #cv2.imshow("Gradient", gradient)
+                    cv2.imshow("Occupation", occupation_image)
+                    cv2.waitKey(10)
+            
             ###########################################
 
         self.truth_map["BBoxes"] = True

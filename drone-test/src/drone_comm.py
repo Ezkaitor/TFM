@@ -84,7 +84,7 @@ while not rospy.is_shutdown():
 
     if "takeoff" in msg:
         msg, altitude = msg.split(" ")
-        success = drone.takeoff(timeout=15)
+        success = drone.takeoff(altitude=int(altitude), timeout=15)
         
     elif msg == "land":
         print("Preparing to land...")
@@ -112,7 +112,7 @@ while not rospy.is_shutdown():
             except ValueError:
                 print(f"Provided coord {coord} is not an float.")
 
-        success = drone.reach_local_position(point)
+        success = drone.reach_local_position(point, mask=4039)
     elif "avoidance" in msg:
         # check
         msg_splitted = msg.split(" ")
