@@ -156,8 +156,9 @@ def main():
                     bbox.id = int(obj[1])
                     bbox.Class = "" # TODO: to be determined
                     
-                    if int(obj[1]) < 86:
-                        bbox.Class = labels_map[int(obj[1])] if labels_map else str(int(obj[1]))
+                    if int(obj[1]) > 80: continue
+                    
+                    bbox.Class = labels_map[int(obj[1])] if labels_map else str(int(obj[1]))
                     
                     bb_list.append(bbox)
             bounding_boxes = BoundingBoxes()

@@ -34,7 +34,8 @@ def closest_from_boolmap(node, bool_map):
     nodes = np.vstack(np.where(bool_map)).transpose()
     deltas = nodes - node
     dist_2 = np.einsum('ij,ij->i', deltas, deltas)
-    return nodes[np.argmin(dist_2)]
+    closest_node = nodes[np.argmin(dist_2)]
+    return closest_node, math.sqrt((closest_node[0]-node[0])**2+(closest_node[1]-node[1])**2)
 
 
 
@@ -45,6 +46,7 @@ class ImageOccupation:
         self.FOVy = 0
 
         self.camera_info_tp = rospy.Subscriber('iris/camera_left/camera_info', CameraInfo, self.get_camera_info)
+        self.camera_info_tp = rospy.Subscriber('iris/camera/camera_info', CameraInfo, self.get_camera_info)
         
         #self.bounding_boxes_tp = rospy.Subscriber('darknet_ros/bounding_boxes', BoundingBoxes, self.boxes)
         self.bounding_boxes_tp = rospy.Subscriber('mobilenet_ros/bounding_boxes', BoundingBoxes, self.boxes)
@@ -138,18 +140,19 @@ class ImageOccupation:
             #    self.occupation_image += self.last_occupation_image
             #self.last_occupation_image = temp
             
-        self.truth_map["BBoxes"] = True
+            self.truth_map["BBoxes"] = True
     
     def send_empty(self):
-        if not self.truth_map2["Empty"] and (time.time()-self.no_detect > 2):
+        if not self.truth_map2["Empty"] and (time.time()-self.no_detect > 1):
             new_target = PoseStamped()
             new_target.header.frame_id = "none"
             self.new_target_pub.publish(new_target)
-            self.no_detect = time.time()
             #self.truth_map["Goal"] = False
             rospy.loginfo("Published Empty...")
             self.truth_map2["Empty"] = True
             self.no_detect = time.time()
+
+            self.new_goal = None
         
     def check(self):
 
@@ -178,24 +181,48 @@ class ImageOccupation:
             if cam_goal_x >= self.occupation_image.shape[1] or cam_goal_x < 0 or cam_goal_y >= self.occupation_image.shape[0] or cam_goal_x < 0:
                 return False
             
+            ## NEW ##
+            # Angle between two vectors
+            if self.new_goal is not None:
+                module_yaw_new = math.atan2(self.new_goal.y-self.current_position.y, self.new_goal.x-self.current_position.x) 
+                #module_pitch_new = math.atan2(self.new_goal.z-self.current_position.z, self.new_goal.x-self.current_position.x)
+                # Angle between plane xy and vector
+                dir_vector_new = to_numpy(self.new_goal) - to_numpy(self.current_position)
+                xy_normal = np.array([0,0,1])
+                module_pitch_new = math.asin(np.dot(dir_vector_new, xy_normal) / (math.sqrt(np.dot(dir_vector_new, dir_vector_new)) * math.sqrt(np.dot(xy_normal, xy_normal))))
+
+                # Calculate goal coordinates in image
+                cam_goal_x_new = int((self.current_orientation[2] - module_yaw_new) * (180.0/math.pi)*self.pixel_per_degree + self.occupation_image.shape[1]/2)
+                cam_goal_y_new = int((module_pitch_new - self.current_orientation[1]) * (180.0/math.pi)*self.pixel_per_degree + self.occupation_image.shape[0]/2)
+
+            
             self.truth_map2["Processed"] = False
             
             self.proc_count += 1
             print(f"Pre process {self.proc_count}: {time.time()-self.detected}")
             self.detected = time.time()
-            full, gradient = create_safe_zone(self.occupation_image, 200)
-            #time.sleep(4)
-
-            if self.current_position.z < 4:
-                gradient[int(800-(400-self.current_position.z*100)-1):, :] = False # Remove part of the floor
+            full, gradient = create_safe_zone(self.occupation_image, 250)
 
 
             if full[cam_goal_y, cam_goal_x]:
+
+                if self.new_goal is not None:
+                    if cam_goal_x_new >= self.occupation_image.shape[1] or cam_goal_x_new < 0 or cam_goal_y_new >= self.occupation_image.shape[0] or cam_goal_x_new < 0:
+                        return True
+                    if not full[cam_goal_y_new, cam_goal_x_new]: return True
+                
                 self.main_goal = self.goal_point
                 
+                if self.current_position.z < 4:
+                    gradient[int(800-(500-self.current_position.z*100)-1):, :] = False # Remove part of the floor
+
                 print(f"Pre calculation {self.proc_count}: {time.time()-self.detected}")
                 self.detected = time.time()
-                closest_goal = closest_from_boolmap([cam_goal_y, cam_goal_x], gradient)
+                closest_goal, dist = closest_from_boolmap([cam_goal_y, cam_goal_x], gradient)
+
+                if self.new_goal is not None:
+                    _, dist_new = closest_from_boolmap([cam_goal_y_new, cam_goal_x_new], gradient)
+                    if dist_new < dist: return True
 
                 xy_module = math.sqrt(np.dot(dir_vector[:2], dir_vector[:2]))
 
