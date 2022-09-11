@@ -112,7 +112,7 @@ while not rospy.is_shutdown():
             except ValueError:
                 print(f"Provided coord {coord} is not an float.")
 
-        success = drone.reach_local_position(point, mask=4039)
+        success = drone.reach_local_position(point)
     elif "avoidance" in msg:
         # check
         msg_splitted = msg.split(" ")

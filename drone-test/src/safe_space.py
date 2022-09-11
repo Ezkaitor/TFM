@@ -2,26 +2,36 @@ import cv2
 import numpy as np
 
 def create_safe_zone(image, distance):
+    
+    # Return same image if no obstacles
+    if not np.any(image): return image.astype(bool), image.astype(bool)
 
     # Load map as an image
-    ret, original_img = cv2.threshold(image, 0, 1, cv2.THRESH_BINARY_INV)
+    if image.dtype== bool: image = image.astype(np.uint8)
+    
+    #ret, original_img = cv2.threshold(image, 0, 1, cv2.THRESH_BINARY)
 
-    img = original_img.copy()
+    img = image.copy()
 
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(distance,distance))  # Element for morph transformations
 
-    gradient = cv2.morphologyEx(img, cv2.MORPH_GRADIENT, kernel) # Get the safe zone
+    full = cv2.dilate(img, kernel)
 
-    full = cv2.erode(img, kernel)
+    #full_bool = np.logical_not(full.astype(bool))
 
-    kernel = cv2.getStructuringElement(cv2.MORPH_CROSS,(2,2))  # Element for morph transformations
+    #ret, full = cv2.threshold(full, 0, 1, cv2.THRESH_BINARY_INV)
+
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(3,3))  # Element for morph transformations
+
+    gradient = cv2.dilate(full, kernel)
+
+    full = full.astype(bool)
+
+    gradient = gradient.astype(bool) * np.logical_not(full)
 
     
-    gradient = cv2.morphologyEx(gradient, cv2.MORPH_GRADIENT, kernel) # Delete internal map
-    
-    gradient *= img
 
-    return np.logical_not(full.astype(bool)), gradient.astype(bool)
+    return full, gradient
 
 
 if __name__ == '__main__':

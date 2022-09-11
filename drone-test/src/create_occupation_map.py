@@ -8,20 +8,26 @@ import numpy as np
 import cv2
 import math
 from darknet_ros_msgs.msg import BoundingBoxes
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, Point
 from sensor_msgs.msg import Image, CameraInfo
 from mavros_msgs.msg import PositionTarget
+
+from numpy_ros import to_numpy
 
 from std_msgs.msg import Header
 
 #from voronoi import generate_voronoi
 from safe_space import create_safe_zone
+from transformations import euler_from_quaternion
+
+
+from PIL import Image
 
 rospy.init_node("bounding_box")
 
 
-VISUALIZE = False
-FOV = 80
+VISUALIZE = True
+
 
 
 def closest_from_boolmap(node, bool_map):
@@ -30,41 +36,22 @@ def closest_from_boolmap(node, bool_map):
     dist_2 = np.einsum('ij,ij->i', deltas, deltas)
     return nodes[np.argmin(dist_2)]
 
-def euler_from_quaternion(x, y, z, w):
-        """
-        Convert a quaternion into euler angles (roll, pitch, yaw)
-        roll is rotation around x in radians (counterclockwise)
-        pitch is rotation around y in radians (counterclockwise)
-        yaw is rotation around z in radians (counterclockwise)
-        """
-        t0 = +2.0 * (w * x + y * z)
-        t1 = +1.0 - 2.0 * (x * x + y * y)
-        roll_x = math.atan2(t0, t1)
-     
-        t2 = +2.0 * (w * y - z * x)
-        t2 = +1.0 if t2 > +1.0 else t2
-        t2 = -1.0 if t2 < -1.0 else t2
-        pitch_y = math.asin(t2)
-     
-        t3 = +2.0 * (w * z + x * y)
-        t4 = +1.0 - 2.0 * (y * y + z * z)
-        yaw_z = math.atan2(t3, t4)
-     
-        return roll_x, pitch_y, yaw_z # in radians
+
 
 class ImageOccupation:
     def __init__(self):
         self.image_size = [0,0]
+        self.FOVx = 0
+        self.FOVy = 0
 
-        self.camera_info_tp = rospy.Subscriber('iris/camera/camera_info', CameraInfo, self.get_camera_info)
-        #self.front_camera_tp = rospy.Subscriber('iris/camera/image_raw', Image, self.get_image)
+        self.camera_info_tp = rospy.Subscriber('iris/camera_left/camera_info', CameraInfo, self.get_camera_info)
+        
         #self.bounding_boxes_tp = rospy.Subscriber('darknet_ros/bounding_boxes', BoundingBoxes, self.boxes)
         self.bounding_boxes_tp = rospy.Subscriber('mobilenet_ros/bounding_boxes', BoundingBoxes, self.boxes)
-        self.goal_point_sub = rospy.Subscriber("mavros/setpoint_raw/local", PositionTarget, self.goal_cb)
+        self.goal_point_sub = rospy.Subscriber("mavros/setpoint_position/local", PoseStamped, self.goal_cb)
         self.current_position_sub = rospy.Subscriber("mavros/local_position/pose", PoseStamped, self.get_current_pose)
 
-        self.occupation_map_tp = rospy.Publisher('iris/occupation_map', Image, queue_size=1)
-        self.new_target_pub = rospy.Publisher('mavros/setpoint_raw/temp', PositionTarget, queue_size=1)
+        self.new_target_pub = rospy.Publisher('mavros/setpoint_position/temp', PoseStamped, queue_size=2)
 
         self.truth_map = {  "CamInfo": False,
                             "BBoxes": False,
@@ -72,155 +59,215 @@ class ImageOccupation:
                             "Current": False,
                             "Goal": False,
                             }
+        self.truth_map2 = {
+                            "Processed": False,
+                            "Empty": False,
+                            }
         
         self.new_goal = None
-        self.cameras = {}
         self.no_detect = time.time()
+        self.camera_maps = {}
+        self.camera_angles = {}
+        self.last_occupation_image = None
+        self.detected = time.time()
+        self.proc_count = -1
     
     def get_current_pose(self, msg):
         pose = msg.pose
-        self.current_position = (pose.position.x, pose.position.y, pose.position.z)
-        self.current_orientation = euler_from_quaternion(pose.orientation.x, pose.orientation.y, pose.orientation.z,  pose.orientation.w)
+        self.current_position = pose.position
+        self.current_orientation = np.array(euler_from_quaternion(pose.orientation.x, pose.orientation.y, pose.orientation.z,  pose.orientation.w))
+        self.current_orientation[2] -= math.pi
+        if self.current_orientation[2] < -math.pi: self.current_orientation[2] = self.current_orientation[2] + 2*math.pi
+        #self.current_orientation = [orientation*(180.0/math.pi) for orientation in self.current_orientation]
         self.truth_map["Current"] = True
 
     def goal_cb(self, goal):
-        self.goal_point = [goal.position.x, goal.position.y, goal.position.z]
+        self.goal_point = goal.pose.position
         self.truth_map["Goal"] = True
 
     def get_camera_info(self, msg):
+        #NOTE: Is assumed that all cameras are exactly identical
         self.image_size[0] = msg.width
         self.image_size[1] = msg.height
+
+        self.FOVx = round(2*math.atan(msg.width/(2*msg.K[0])) * 180/math.pi)
+        self.FOVy = round(2*math.atan(msg.height/(2*msg.K[4])) * 180/math.pi)
+
+        self.pixel_per_degree = self.image_size[0]/self.FOVx
+
         self.truth_map["CamInfo"] = True
 
     def boxes(self, msg):
         
+        if not self.truth_map2["Processed"]: return
+        cam_name, cam_angle = msg.header.frame_id.split("_")
+        self.camera_maps[cam_name] = np.zeros(self.image_size, dtype=bool)
+        if int(cam_angle) > 180: self.camera_angles[cam_name] = int(cam_angle)-360
+        else: self.camera_angles[cam_name] = int(cam_angle)
+
+        ### Algorithm to create a occupation map ###
+        
+        # TODO: play with probabilities
+        # TODO: different with classes
+        for box in msg.bounding_boxes:
+            try:
+                self.camera_maps[cam_name][box.ymin:box.ymax, box.xmin:box.xmax] = True
+            except IndexError:
+                rospy.WARN("Bounding box out of the frame, check sizes.")
+        
         # Check if all cameras are working, depending on de layout
         if not self.truth_map["AllCameras"]:
-            self.cameras[msg.header.frame_id] = None
-            if "single" in self.cameras.keys():
+            if "single" in self.camera_maps.keys():
                 self.truth_map["AllCameras"] = True
-            elif "left" in self.cameras.keys() and "right" in self.cameras.keys():
+            elif "left" in self.camera_maps.keys() and "right" in self.camera_maps.keys():
                 self.truth_map["AllCameras"] = True
+            return
 
-        if self.truth_map["CamInfo"] and self.truth_map["AllCameras"]:
+        if self.truth_map["CamInfo"]:
+            min_angle = min(self.camera_angles.values())-self.FOVx//2
+            max_angle = max(self.camera_angles.values()) + self.FOVx//2
+            self.occupation_image = np.zeros((self.image_size[1], round((max_angle-min_angle)*self.pixel_per_degree)), dtype=bool)
+
+            for name, camera in self.camera_maps.items():
+                min_value = int((self.camera_angles[name]-self.FOVx//2)*self.pixel_per_degree + self.occupation_image.shape[1]//2)
+                self.occupation_image[:, min_value:min_value+self.image_size[0]] += camera
+
+            #temp = np.copy(self.occupation_image)
+
+            #if self.last_occupation_image is not None:
+            #    self.occupation_image += self.last_occupation_image
+            #self.last_occupation_image = temp
             
-            ### Algorithm to create a occupation map ###
-            self.cameras[msg.header.frame_id] = np.zeros(self.image_size, dtype=bool)
-            # TODO: play with probabilities
-            # TODO: different with classes
-            for box in msg.bounding_boxes:
-                try:
-                    self.cameras[msg.header.frame_id][box.ymin:box.ymax, box.xmin:box.xmax] = True
-                except IndexError:
-                    rospy.WARN("Bounding box out of the frame, check sizes.")
+        self.truth_map["BBoxes"] = True
+    
+    def send_empty(self):
+        if not self.truth_map2["Empty"] and (time.time()-self.no_detect > 2):
+            new_target = PoseStamped()
+            new_target.header.frame_id = "none"
+            self.new_target_pub.publish(new_target)
+            self.no_detect = time.time()
+            #self.truth_map["Goal"] = False
+            rospy.loginfo("Published Empty...")
+            self.truth_map2["Empty"] = True
+            self.no_detect = time.time()
+        
+    def check(self):
+
+
+        #self.goal_point = Point(10, 1, 2)
+        #self.truth_map["Goal"] = True
+        #if False:
+        if all(flag for flag in self.truth_map.values()) and np.any(self.occupation_image): # TODO: set to false when goal reached
+                                                            # All cameras is not necessary, just 1
+
+            if self.new_goal is not None and self.new_goal==self.goal_point:
+                self.goal_point = self.main_goal
+
+            # Angle between two vectors
+            module_yaw = math.atan2(self.goal_point.y-self.current_position.y, self.goal_point.x-self.current_position.x) 
+            #module_pitch = math.atan2(self.goal_point.z-self.current_position.z, self.goal_point.x-self.current_position.x)
+            # Angle between plane xy and vector
+            dir_vector = to_numpy(self.goal_point) - to_numpy(self.current_position)
+            xy_normal = np.array([0,0,1])
+            module_pitch = math.asin(np.dot(dir_vector, xy_normal) / (math.sqrt(np.dot(dir_vector, dir_vector)) * math.sqrt(np.dot(xy_normal, xy_normal))))
             
-            truth_image = Image()
-            truth_image.header = Header()
-            truth_image.width = self.image_size[0]
-            truth_image.height = self.image_size[1]
-            truth_image.encoding = "mono8"
-            truth_image.data = self.cameras[msg.header.frame_id].tobytes() # TODO: Make a bigger image combined
+            # Calculate goal coordinates in image
+            cam_goal_x = int((self.current_orientation[2] - module_yaw) * (180.0/math.pi)*self.pixel_per_degree + self.occupation_image.shape[1]/2)
+            cam_goal_y = int((module_pitch - self.current_orientation[1]) * (180.0/math.pi)*self.pixel_per_degree + self.occupation_image.shape[0]/2)
+
+            if cam_goal_x >= self.occupation_image.shape[1] or cam_goal_x < 0 or cam_goal_y >= self.occupation_image.shape[0] or cam_goal_x < 0:
+                return False
             
-            occupation_image = (self.cameras[msg.header.frame_id] * 255).astype(np.uint8)
+            self.truth_map2["Processed"] = False
             
-            #self.goal_point = [-10, 2, 1.5]
-            #self.truth_map["Goal"] = True
-            if self.truth_map["Goal"] and self.truth_map["Current"]: # TODO: set to false when goal reached
+            self.proc_count += 1
+            print(f"Pre process {self.proc_count}: {time.time()-self.detected}")
+            self.detected = time.time()
+            full, gradient = create_safe_zone(self.occupation_image, 200)
+            #time.sleep(4)
+
+            if self.current_position.z < 4:
+                gradient[int(800-(400-self.current_position.z*100)-1):, :] = False # Remove part of the floor
+
+
+            if full[cam_goal_y, cam_goal_x]:
+                self.main_goal = self.goal_point
                 
-                full, gradient = create_safe_zone(occupation_image, 200)
+                print(f"Pre calculation {self.proc_count}: {time.time()-self.detected}")
+                self.detected = time.time()
+                closest_goal = closest_from_boolmap([cam_goal_y, cam_goal_x], gradient)
 
-                # Check if goal in sight line
-                #if goal_x > self.image_size[0]:
-                #    pass # Goal out of sight in x axis
-                #if goal_y > self.image_size[1]:
-                #    pass # Goal out of sight in y axis
+                xy_module = math.sqrt(np.dot(dir_vector[:2], dir_vector[:2]))
 
-                if self.new_goal is not None and self.new_goal==self.goal_point:
-                    self.goal_point = self.main_goal
-                # Goal point in image
-                # TODO: Get the angles as they affect the point in the camera !!!!
-                #NOTE: distance to go slower to obstacle and faster to gap
-                goal_x = (self.image_size[0]/2)*(self.goal_point[1]-self.current_position[0])/(self.goal_point[0]*math.sin(math.radians(FOV/2))/math.sin(math.radians(270))) # NOTE: now it is x, change to focusing drone
-                goal_y = (self.image_size[1]/2)*(self.goal_point[2]-self.current_position[2])/(self.goal_point[0]*math.sin(math.radians(FOV/2))/math.sin(math.radians(90))) # NOTE: now it is x, change to focusing drone
-
-                goal_x = int(goal_x+self.image_size[0]/2)
-                goal_y = int(goal_y+self.image_size[1]/2)
-
-                if full[goal_y,goal_x]:
-                    self.main_goal = np.copy(self.goal_point)
-                    
-
-                    closest_goal = closest_from_boolmap([goal_y, goal_x], gradient)
-                    self.goal_point[0] = self.current_position[0] - 4
-                    new_goal = (closest_goal[1] - self.image_size[1]/2) * (self.goal_point[0]*math.sin(math.radians(FOV/2))/math.sin(math.radians(270))) / (self.image_size[0]/2) + self.current_position[0]
-                    new_goal_2 = (closest_goal[0] - self.image_size[1]/2) * (self.goal_point[0]*math.sin(math.radians(FOV/2))/math.sin(math.radians(90))) / (self.image_size[0]/2) + self.current_position[2]
-                    
-                    new_target = PositionTarget()
-                    mask = 4039
-                    new_target.header.frame_id = "home"
-                    new_target.header.stamp = rospy.Time.now()
-                    new_target.coordinate_frame = 1
-                    new_target.type_mask  = mask
-                    new_target.position.x = self.goal_point[0]
-                    new_target.position.y = new_goal
-                    new_target.position.z = new_goal_2
-
-                    self.new_goal = [self.goal_point[0], new_goal, new_goal_2]
-
-                    
-                    
-
-                    self.new_target_pub.publish(new_target)
-
-                    rospy.loginfo("Publishing new target")
-
-
-                    self.no_detect = time.time()
+                delta_yaw = (closest_goal[1] - self.occupation_image.shape[1]/2)/self.pixel_per_degree
+                delta_pitch = (self.occupation_image.shape[0]/2 - closest_goal[0])/self.pixel_per_degree
                 
-                else:
-                    if time.time()-self.no_detect > 4:
-                        new_target = PositionTarget()
-                        mask = 4039
-                        new_target.header.frame_id = "none"
-                        self.new_target_pub.publish(new_target)
-
-                        
+                new_goal_x = (xy_module/math.sin(math.radians(180-90-abs(delta_yaw))))*math.sin(math.radians(delta_yaw))
+                new_goal_y = (xy_module/math.sin(math.radians(180-90-abs(delta_pitch))))*math.sin(math.radians(delta_pitch)) + self.current_position.z
                 
+                #self.goal_point[0] = self.current_position[0] - 4
+                #new_goal_x = (closest_goal[1] - self.image_size[1]/2) * (self.goal_point.x*math.sin(math.radians(self.FOVx/2))/math.sin(math.radians(270))) / (self.image_size[0]/2) + self.current_position.x
+                #new_goal_y = (closest_goal[0] - self.image_size[1]/2) * (self.goal_point.x*math.sin(math.radians(self.FOVx/2))/math.sin(math.radians(90))) / (self.image_size[0]/2) + self.current_position[2]
+                
+                new_target = PoseStamped()
+                new_target.header.frame_id = "temp_target"
+                new_target.header.stamp = rospy.Time.now()
+                
+                new_target.pose.position.x = self.goal_point.x + new_goal_x*math.sin(module_yaw)
+                new_target.pose.position.y = self.goal_point.y - new_goal_x*math.cos(module_yaw)
+                new_target.pose.position.z = new_goal_y
+
+                self.new_goal = new_target.pose.position
+
+                print(f"Pre publish {self.proc_count}: {time.time()-self.detected}")
+                self.detected = time.time()
+                self.new_target_pub.publish(new_target)
+                self.truth_map2["Empty"] = False
+
+                rospy.loginfo("Publishing new target")
+            
                 
                 if VISUALIZE:
                     # Showing purposes
-                    occupation_image = cv2.cvtColor(occupation_image, cv2.COLOR_GRAY2BGR)
-                    occupation_image = cv2.circle(occupation_image, (goal_x, goal_y), radius=5, color=(0, 0, 255), thickness=-1)
-                    #occupation_image = cv2.circle(occupation_image, (closest_goal[1], closest_goal[0]), radius=5, color=(255, 0, 0), thickness=-1)
-                    occupation_image[gradient] = (0,255,0)
+                    self.occupation_image_show = (self.occupation_image*255).astype(np.uint8)
+                    self.occupation_image_show = cv2.cvtColor(self.occupation_image_show, cv2.COLOR_GRAY2BGR)
+                    self.occupation_image_show = cv2.circle(self.occupation_image_show, (cam_goal_x, cam_goal_y), radius=5, color=(0, 0, 255), thickness=-1)
+                    self.occupation_image_show = cv2.circle(self.occupation_image_show, (closest_goal[1], closest_goal[0]), radius=5, color=(255, 0, 0), thickness=-1)
+                    self.occupation_image_show[gradient] = (0,255,0)
 
                     #cv2.imshow("Gradient", gradient)
-                    cv2.imshow("Occupation", occupation_image)
-                    cv2.waitKey(10)
-            
-            ###########################################
+                    self.occupation_image_show = cv2.resize(self.occupation_image_show, (700, 400))
+                    cv2.imshow("Occupation", self.occupation_image_show)
+                    cv2.waitKey(1)
+                
+                self.truth_map2["Processed"] = True
+                self.no_detect = time.time()
+                self.occupation_image = np.zeros((self.occupation_image.shape), dtype=bool)
+                #self.truth_map["AllCameras"] = False
+                
+                return True
+        
+        if self.truth_map["BBoxes"] and VISUALIZE: 
+            self.occupation_image_show = (self.occupation_image*255).astype(np.uint8)
+            self.occupation_image_show = cv2.resize(self.occupation_image_show, (700, 400))
+            cv2.imshow("Occupation", self.occupation_image_show)
+            cv2.waitKey(1)
+            self.occupation_image = np.zeros((self.occupation_image.shape), dtype=bool)
+        self.truth_map2["Processed"] = True
+        
+        return False
 
-        self.truth_map["BBoxes"] = True
-        #print("checkpoint")
-
-    def get_image(self, msg):
-        if self.truth_map["CamInfo"] and self.truth_map["BBoxes"]:
-            
-            rgb_img = np.frombuffer(msg.data, dtype=np.uint8).reshape(msg.height, msg.width, -1)[:,:,::-1]
-            combined = cv2.cvtColor(rgb_img, cv2.COLOR_BGR2GRAY)
-            
-            combined[self.occupation_map] = 255 # NOTE: uint8 image
-            #cv2.imshow("image", combined)
-            #cv2.waitKey(0)
-            #cv2.destroyAllWindows()
+        ###########################################
 
 
 def main():
     
-
+    rate = rospy.Rate(20)
     img_occ = ImageOccupation()
-
-    rospy.spin()
+    while not rospy.is_shutdown():
+        success = img_occ.check()
+        if not success: img_occ.send_empty()
+        rate.sleep()
 
 if __name__ == "__main__":
     main()

@@ -12,6 +12,8 @@ from pymavlink import mavutil
 #from sensor_msgs.msg import NavSatFix, Imu
 from threading import Thread
 
+from transformations import quaternion_from_euler
+
 
 class Drone():
 
@@ -80,14 +82,14 @@ class Drone():
                                               self.local_position_callback)
         self.state_sub = rospy.Subscriber('mavros/state', State,
                                           self.state_callback)
-        self.temp_target_sub = rospy.Subscriber('mavros/setpoint_raw/temp', PositionTarget, self.get_temp_target)
+        self.temp_target_sub = rospy.Subscriber('mavros/setpoint_position/temp', PoseStamped, self.get_temp_target)
 
         self.mission_item_reached = -1  # first mission item is 0
         #self.mission_name = ""
 
         self.mavlink_pub = rospy.Publisher('mavlink/to', Mavlink, queue_size=1)
-        self.local_target = rospy.Publisher('mavros/setpoint_raw/local', PositionTarget, queue_size=1)
-        
+        #self.local_target = rospy.Publisher('mavros/setpoint_raw/local', PositionTarget, queue_size=1)
+        self.local_target = rospy.Publisher('mavros/setpoint_position/local', PoseStamped, queue_size=1)
         
         self.global_target = rospy.Publisher('mavros/setpoint_raw/global', GlobalPositionTarget, queue_size=1)
         
@@ -423,28 +425,24 @@ class Drone():
             if not self.state.armed:
                 self.set_arm(True, 5)
                 # TODO: set mode offboard?
-            self.takeoff_position = [0, 0, 0]
-            self.takeoff_position[2] += altitude
+            self.takeoff_position = [self.local_position.pose.position.x, self.local_position.pose.position.y, altitude]
             self.set_mode_srv(0, "OFFBOARD")
-            self.reach_local_position(self.takeoff_position, vx=0, vy=0, vz=0, mask=4088)#, avoidance=False)
-            #self.set_mode_srv(0, "AUTO.TAKEOFF")
-            # TODO: wait for drone to get to point
+            success = self.reach_local_position(self.takeoff_position)
             
-            return True
+            return success
         else:
             return False
     
     def land(self, timeout:float=15.0):
-        #self.land_position = self.current_position
-        #self.land_position[2] = 0 # TODO: check what if global
-        #self.reach_position(self.land_position, avoidance=False)
-        self.set_mode_srv(0, "AUTO.LAND")
+        res = self.set_land_srv(0,0,0,0,0)
         self.set_arm(False, 5)
-        return True
+        return res.success
     
     def return_to_base(self, timeot=15.0):
-        self.reach_local_position(self.home_position, avoidance=True)
-        return True
+        home = [self.home_position.position.x, self.home_position.position.y, 2]
+        success = self.reach_local_position(home)
+        success *= self.land()
+        return success
 
     def reach_global_position(self, position):
         # DEPRECATED
@@ -454,7 +452,7 @@ class Drone():
         raw_msg = GlobalPositionTarget()
 
         mask = 4088
-        raw_msg.header.frame_id = "home"
+        raw_msg.header.frame_id = "target"
         raw_msg.header.stamp = rospy.Time.now()
         raw_msg.coordinate_frame = 1
         raw_msg.type_mask  = mask
@@ -502,6 +500,7 @@ class Drone():
         if position_target.velocity.z < minVel and position_target.velocity.z > 0 : position_target.velocity.z = minVel
 
         return position_target
+    
     def get_temp_target(self, target):
         
         if target.header.frame_id == "none":
@@ -509,74 +508,61 @@ class Drone():
         else:
             self.temp_target = target
 
-    def reach_local_position(self, position, vx=0.2, vy=0.2, vz=0.2, mask=4064):
-        #self.set_mode("OFFBOARD", timeout=10)
-        long, lat, alt = position
-        #gb_pos = GlobalPositionTarget(longitude=long, latitude= lat, altitude=alt)
-        p = Point(x=long, y=lat, z=alt)
-        raw_msg = PositionTarget()
+    def get_orientation(self, target):
+        x = self.local_position.pose.position.x - target[0]
+        y = self.local_position.pose.position.y - target[1]
+        angle = math.atan2(y, x)
+        return quaternion_from_euler(0, 0, angle)
 
-        raw_msg.header.frame_id = "home"
-        raw_msg.header.stamp = rospy.Time.now()
-        raw_msg.coordinate_frame = 1
-        raw_msg.type_mask  = mask
-        raw_msg.position.x = long
-        raw_msg.position.y = lat
-        raw_msg.position.z = alt
+    def reach_local_position(self, target):
         
-        #raw_msg.velocity.x = vx
-        #raw_msg.velocity.y = vy
-        #raw_msg.velocity.z = vz
-        
+        self.target_position = PoseStamped()
 
-        rate = rospy.Rate(2)  # Hz
+        self.target_position.header.frame_id = "target"
+        self.target_position.header.stamp = rospy.Time.now()
         
+        
+        self.target_position.pose.position.x = target[0]
+        self.target_position.pose.position.y = target[1]
+        self.target_position.pose.position.z = target[2]
+        
+        rate = rospy.Rate(1)  # Hz
+        self.point_reached = False
+        last_target = None
+
         while not rospy.is_shutdown():
-            self.point_reached = False
-            while not self.point_reached:
+            
+            #while not self.point_reached:
 
-                '''
-                # Constant speed
-                if self.local_position.pose.position.x > long: raw_msg.velocity.x = -vx
-                else: raw_msg.velocity.x = vx
-                if self.local_position.pose.position.y > lat: raw_msg.velocity.y = -vy
-                else: raw_msg.velocity.y = vy
-                if self.local_position.pose.position.z > alt: raw_msg.velocity.z = -vz
-                else: raw_msg.velocity.z = vz
-                
-                if abs(self.local_position.pose.position.x - raw_msg.position.x) < 0.2: raw_msg.velocity.x = 0
-                if abs(self.local_position.pose.position.y - raw_msg.position.y) < 0.2: raw_msg.velocity.y = 0
-                if abs(self.local_position.pose.position.z - raw_msg.position.z) < 0.2: raw_msg.velocity.z = 0
-                '''
-                
-                if self.temp_target is not None:
-                    if mask !=4088:
-                        pass#self.temp_target = self.calculate_velocities(self.temp_target)
-                    self.local_target.type_mask = 4088
-                    self.local_target.publish(self.temp_target)
-                    print("Moving to:", self.temp_target)
-                else:
-                    if mask !=4088:
-                        raw_msg = self.calculate_velocities(raw_msg)
-                    raw_msg.type_mask = 4088
-                    self.local_target.publish(raw_msg)
-                    print("Moving to:", raw_msg)
+            if self.temp_target is not None:
+                reach_target =  self.temp_target
+            else:
+                reach_target = self.target_position
+            
+            if (abs(self.local_position.pose.position.x - target[0]) + abs(self.local_position.pose.position.y - target[1])) > 0.5:
+                qx, qy, qz, qw = self.get_orientation(target)
+                reach_target.pose.orientation.x = qx
+                reach_target.pose.orientation.y = qy
+                reach_target.pose.orientation.z = qz
+                reach_target.pose.orientation.w = qw
+            
+            self.local_target.publish(reach_target)
+            if reach_target != last_target:
+                print("Moving to:", reach_target.pose.position)
+                last_target = reach_target
 
-                
-                if abs(self.local_position.pose.position.x - raw_msg.position.x) < 0.2 and \
-                    abs(self.local_position.pose.position.y - raw_msg.position.y) < 0.2 and \
-                    abs(self.local_position.pose.position.z - raw_msg.position.z) < 0.2:
-                    self.point_reached = True
-                    rospy.loginfo("Local Position x: {0}, y: {1}, z: {2} reached.".format( \
-                                    raw_msg.position.x, raw_msg.position.y, raw_msg.position.z))
-                    return self.point_reached
-                try:  # prevent garbage in console output when thread is killed
-                    rate.sleep()
-                except rospy.ROSInterruptException:
-                    pass
+            
+            if abs(self.local_position.pose.position.x - self.target_position.pose.position.x) < 0.5 and \
+                abs(self.local_position.pose.position.y - self.target_position.pose.position.y) < 0.5 and \
+                abs(self.local_position.pose.position.z - self.target_position.pose.position.z) < 0.5:
+                self.point_reached = True
+                rospy.loginfo("Local Position x: {0}, y: {1}, z: {2} reached.".format( \
+                                self.target_position.pose.position.x, self.target_position.pose.position.y, self.target_position.pose.position.z))
+                return True
+            try:  # prevent garbage in console output when thread is killed
+                rate.sleep()
+            except rospy.ROSInterruptException:
+                pass
 
 if __name__ == "__main__":
-    rospy.init_node("test_node", anonymous=True)
-    drone = Drone()
-    drone.setUp()
-    rospy.spin()
+    raise ValueError("You, stupid piece of crap!")

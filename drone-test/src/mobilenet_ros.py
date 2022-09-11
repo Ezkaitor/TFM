@@ -4,6 +4,7 @@
 from pathlib import Path
 import cv2 as cv
 import numpy as np
+from functools import partial
 
 ## ROS libraries
 import rospy
@@ -17,15 +18,24 @@ from openvino.inference_engine import IECore
 image_recieved = False
 image = None
 image_size = [0,0, 3]
+camera = ""
 
-def get_image(msg):
+def get_image(cam, msg):
     global image
     global image_recieved
     global image_size
+    global camera
+
+    show= False
+
     image_size = (msg.width, msg.height, 3)
     image = np.frombuffer(msg.data, dtype=np.uint8).reshape(image_size)
-    #image = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
+    if show:
+        image_show = cv.cvtColor(image, cv.COLOR_BGR2GRAY)
+        cv.imshow("Original", image_show)
+        cv.waitKey(10)
     image_recieved = True
+    camera = cam
 
 ## COCO Classes ##
 labels_map = {0: '__background__', 1: 'person', 2: 'bicycle', 3: 'car', 4: 'motorcycle', 5: 'airplane', 6: 'bus', 7: 'train', 8: 'truck', 9: 'boat',10: 'traffic light',11: 'fire hydrant',12: 'stop sign',13: 'parking meter',14: 'bench',15: 'bird',16: 'cat',17: 'dog',18: 'horse',19: 'sheep',20: 'cow',21: 'elephant',22: 'bear',23: 'zebra',24: 'giraffe',25: 'backpack',26: 'umbrella',27: 'handbag',28: 'tie',29: 'suitcase',30: 'frisbee',31: 'skis',32: 'snowboard',33: 'sports ball',34: 'kite',35: 'baseball bat',36: 'baseball glove',37: 'skateboard',38: 'surfboard',39: 'tennis racket',40: 'bottle',41: 'wine glass',42: 'cup',43: 'fork',44: 'knife',45: 'spoon',46: 'bowl',47: 'banana',48: 'apple',49: 'sandwich',50: 'orange',51: 'broccoli',52: 'carrot',53: 'hot dog',54: 'pizza',55: 'donut',56: 'cake',57: 'chair',58: 'couch',59: 'potted plant',60: 'bed',61: 'dining table',62: 'toilet',63: 'tv',64: 'laptop',65: 'mouse',66: 'remote',67: 'keyboard',68: 'cell phone',69: 'microwave',70: 'oven',71: 'toaster',72: 'sink',73: 'refrigerator',74: 'book',75: 'clock',76: 'vase',77: 'scissors',78: 'teddy bear',79: 'hair drier',80: 'toothbrush'}
@@ -94,20 +104,26 @@ def main():
     #    image_size[1] = msg.height
     #    camera_info_received = True
 
-    image_tp = rospy.Subscriber('iris/camera/image_raw', Image, get_image)
+    image_sub = rospy.Subscriber('iris/camera/image_raw', Image, partial(get_image, 'single_0'))
+    image_left_sub = rospy.Subscriber('iris/camera_left/image_raw', Image, partial(get_image, 'left_330'))
+    image_center_sub = rospy.Subscriber('iris/camera_center/image_raw', Image, partial(get_image, 'center'))
+    image_right_sub = rospy.Subscriber('iris/camera_right/image_raw', Image, partial(get_image, 'right_30'))
     #camera_info_tp = rospy.Subscriber('iris/camera/camera_info', CameraInfo, get_camera_info)
 
     bb_pub = rospy.Publisher("mobilenet_ros/bounding_boxes", BoundingBoxes, queue_size=1)
 
-    rate = rospy.Rate(2)
+    rate = rospy.Rate(50)
 
     rospy.loginfo("Waiting for image...")
     images_proccessed = 0
     global image
     global image_size
     global image_recieved
+    global camera
+    global timing
     while not rospy.is_shutdown():
         if image_recieved: # and camera_info_received:
+        
             #image = image.reshape(image_size[:2]) # RGB Image
             image = cv.resize(image, (w,h))
             image = image.transpose((2,0,1)) # Change data layout from HWC to CHW
@@ -140,12 +156,14 @@ def main():
                     bbox.id = int(obj[1])
                     bbox.Class = "" # TODO: to be determined
                     
-                    bbox.Class = labels_map[int(obj[1])] if labels_map else str(int(obj[1]))
+                    if int(obj[1]) < 86:
+                        bbox.Class = labels_map[int(obj[1])] if labels_map else str(int(obj[1]))
                     
                     bb_list.append(bbox)
             bounding_boxes = BoundingBoxes()
             bounding_boxes.header = Header()
             bounding_boxes.image_header = Header()
+            bounding_boxes.header.frame_id = camera
 
             bounding_boxes.bounding_boxes = bb_list
             bb_pub.publish(bounding_boxes)
