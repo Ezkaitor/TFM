@@ -345,7 +345,7 @@
         <use_parent_model_frame>1</use_parent_model_frame>
       </axis>
     </joint>
-    <link name='cam_link'>
+    <link name='cam_link_left'>
       <pose frame=''>-0.118317 0.002195 0.004205 -0 -0 -2.62703</pose>
       <inertial>
         <mass>0.015</mass>
@@ -361,7 +361,7 @@
       </inertial>
       <self_collide>0</self_collide>
       <kinematic>0</kinematic>
-      <sensor name='camera' type='camera'>
+      <sensor name='camera_left' type='camera'>
         <camera name="head">
           <horizontal_fov>1.3962634</horizontal_fov>
           <image>
@@ -380,10 +380,10 @@
         <plugin name="camera_controller" filename="libgazebo_ros_camera.so">
         <alwaysOn>true</alwaysOn>
         <updateRate>0.0</updateRate>
-        <cameraName>iris/camera</cameraName>
+        <cameraName>iris/camera_left</cameraName>
         <imageTopicName>image_raw</imageTopicName>
         <cameraInfoTopicName>camera_info</cameraInfoTopicName>
-        <frameName>camera_link</frameName>
+        <frameName>camera_link_left</frameName>
         <hackBaseline>0.07</hackBaseline>
         <distortionK1>0.0</distortionK1>
         <distortionK2>0.0</distortionK2>
@@ -393,8 +393,8 @@
       </plugin>
       </sensor>
     </link>
-    <joint name='camera' type='fixed'>
-      <child>cam_link</child>
+    <joint name='camera_left' type='fixed'>
+      <child>cam_link_left</child>
       <parent>base_link</parent>
       <axis>
         <xyz>0 0 1</xyz>
