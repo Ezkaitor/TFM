@@ -21,7 +21,8 @@ responses = {
     "takeoff": "Drone has takeoff.",
     "land": "Drone has succesfully landed.",
     "base": "Drone succesfully returned to base.",
-    "avoidance": "Avoidance successfully changed."
+    "avoidance": "Avoidance successfully changed.",
+    "reach": "Point reached"
 }
 def get_response(resp):
     global available

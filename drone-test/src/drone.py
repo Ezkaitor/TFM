@@ -92,6 +92,7 @@ class Drone():
         self.local_target = rospy.Publisher('mavros/setpoint_position/local', PoseStamped, queue_size=1)
         
         self.global_target = rospy.Publisher('mavros/setpoint_raw/global', GlobalPositionTarget, queue_size=1)
+        self.reached_goal = rospy.Publisher('mavros/setpoint_position/reached', Bool, queue_size=1)
         
 
         # need to simulate heartbeat to prevent datalink loss detection
@@ -516,6 +517,8 @@ class Drone():
 
     def reach_local_position(self, target):
         
+        self.reached_goal.publish(False)
+
         self.target_position = PoseStamped()
 
         self.target_position.header.frame_id = "target"
@@ -558,6 +561,7 @@ class Drone():
                 self.point_reached = True
                 rospy.loginfo("Local Position x: {0}, y: {1}, z: {2} reached.".format( \
                                 self.target_position.pose.position.x, self.target_position.pose.position.y, self.target_position.pose.position.z))
+                self.reached_goal.publish(True)
                 return True
             try:  # prevent garbage in console output when thread is killed
                 rate.sleep()

@@ -74,7 +74,7 @@ if not debug:
     #drone.tearDown()
 
 
-rate = rospy.Rate(2)
+rate = rospy.Rate(20)
 msg = ""
 success = None
 offboard = False
@@ -133,6 +133,7 @@ while not rospy.is_shutdown():
     if success is not None:
         resp = msg.split(" ")[0]
         resp_pub.publish(f"{resp} {success}")
+        rospy.loginfo(f"Responding: {resp} {success}")
         success = None
         msg = ""
 
