@@ -15,6 +15,8 @@ from darknet_ros_msgs.msg import BoundingBox,BoundingBoxes
 # OpenVino Library
 from openvino.inference_engine import IECore
 
+VISUALIZE = False
+
 image_recieved = False
 image = None
 image_size = [0,0, 3]
@@ -120,10 +122,11 @@ def main():
     global image_size
     global image_recieved
     global camera
-    global timing
     while not rospy.is_shutdown():
         if image_recieved: # and camera_info_received:
-        
+            
+            image = cv.cvtColor(image, cv.COLOR_BGR2RGB)
+            frame = image.copy()
             #image = image.reshape(image_size[:2]) # RGB Image
             image = cv.resize(image, (w,h))
             image = image.transpose((2,0,1)) # Change data layout from HWC to CHW
@@ -144,7 +147,7 @@ def main():
             for obj in out:
                 if obj[0] == -1: break # Reached las object
                 # Draw only objects when probability more than specified threshold
-                if obj[2]*100 > 50:
+                if obj[2]*100 > 40:
                     bbox = BoundingBox()
                     bbox.xmin = int(obj[3] * image_size[0])
                     bbox.ymin = int(obj[4] * image_size[1])
@@ -161,6 +164,9 @@ def main():
                     bbox.Class = labels_map[int(obj[1])] if labels_map else str(int(obj[1]))
                     
                     bb_list.append(bbox)
+                    cv.rectangle(frame, (bbox.xmin , bbox.ymin), (bbox.xmax, bbox.ymax), (255,0,0), 2)
+                    
+            
             bounding_boxes = BoundingBoxes()
             bounding_boxes.header = Header()
             bounding_boxes.image_header = Header()
@@ -168,6 +174,11 @@ def main():
 
             bounding_boxes.bounding_boxes = bb_list
             bb_pub.publish(bounding_boxes)
+
+            if VISUALIZE:
+                frame = cv.resize(frame, (400,400))
+                cv.imshow("Mobilenet", frame)
+                cv.waitKey(1)
 
             images_proccessed += 1
             rospy.loginfo(f"Images proccessed {images_proccessed}")
