@@ -6,5 +6,6 @@ launch.json
 *.last_generated
 
 settings.json
+*.png
 
 *__pycache__
