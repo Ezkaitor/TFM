@@ -31,7 +31,7 @@ obstacles = [
     Rectangle((26.5, -1.5), 1, 6, facecolor="grey", fill=True),
     Rectangle((44, 23.5), 4, 1, facecolor="grey", fill=True),
     Rectangle((35.8, 30.5), 4, 1, facecolor="grey", fill=True),
-    Rectangle((45, 39), 4, 1, facecolor="grey", fill=True),
+    Rectangle((45.2, 39), 4, 1, facecolor="grey", fill=True),
 ]
 
 def get_response(resp):
@@ -56,13 +56,14 @@ def create_map():
     global drone_pos_points
     global obstacles
     global test
+    global save_path
 
     #test = 2
     size = [800, 800]
-    fov = 80
+    fov = 120
     speed = 2
-    cameras = 1
-    angles = [0]
+    cameras = 3
+    angles = [40, -40]
 
     x = [pos[0] for pos in drone_pos_points]
     y = [pos[1] for pos in drone_pos_points]
@@ -91,10 +92,21 @@ def create_map():
 
     plt.tight_layout()
 
+    '''
     name = f"{test}-{size[0]}x{size[1]}_cams{cameras}"
     for angle in angles: name += "_" + str(angle)
     name += "_fov_" + str(fov)
+    name += "_speed_" + str(speed)
     
+    '''
+    #save_path = save_path / "3 cameras/FOV"
+    #save_path = save_path / "3 cameras/speed"
+    save_path = save_path / "3 cameras/angle"
+    save_path.mkdir(parents=True, exist_ok=True)
+    #name = f"{test}_" + str(fov)
+    #name = f"{test}_" + str(speed)
+    name = f"{test}"
+    for angle in angles: name += "_" + str(angle)
     fig1.savefig(save_path/(name+"_map.png"))
     fig2.savefig(save_path/(name+"_alt.png"))
 

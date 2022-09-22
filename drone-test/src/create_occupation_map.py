@@ -63,6 +63,7 @@ class ImageOccupation:
                             }
         self.truth_map2 = {
                             "Processed": True,
+                            "Saved": True,
                             "Empty": False,
                             }
         
@@ -102,6 +103,11 @@ class ImageOccupation:
     def boxes(self, msg):
         
         if not self.truth_map2["Processed"]: return
+
+        if not self.truth_map2["Saved"]:
+            return
+        self.truth_map2["Saved"] = False
+        
         cam_name, cam_angle = msg.header.frame_id.split("_")
         self.camera_maps[cam_name] = np.zeros(self.image_size, dtype=bool)
         if int(cam_angle) > 180: self.camera_angles[cam_name] = int(cam_angle)-360
@@ -123,7 +129,11 @@ class ImageOccupation:
                 self.truth_map["AllCameras"] = True
             elif "left" in self.camera_maps.keys() and "right" in self.camera_maps.keys():
                 self.truth_map["AllCameras"] = True
+            self.truth_map2["Saved"] = True
             return
+
+        #if self.camera_maps["left"] == self.camera_maps["center"]: rospy.loginfo("Same image")
+        #if self.camera_maps["right"] == self.camera_maps["center"]: rospy.loginfo("Same image")
 
         if self.truth_map["CamInfo"]:
             min_angle = min(self.camera_angles.values())-self.FOVx//2
@@ -141,6 +151,7 @@ class ImageOccupation:
             #self.last_occupation_image = temp
             #rospy.loginfo(f"Camera updated {time.time()}")
             self.truth_map["BBoxes"] = True
+        self.truth_map2["Saved"] = True
     
     def send_empty(self):
         if not self.truth_map2["Empty"]: # and (time.time()-self.no_detect > 0.1):
@@ -157,7 +168,7 @@ class ImageOccupation:
     def show(self):
         if self.truth_map["BBoxes"] and VISUALIZE and all(flag for flag in self.truth_map.values()) and np.any(self.occupation_image):
             self.occupation_image_show = cv2.circle(self.occupation_image_show, (self.cam_goal_x, self.cam_goal_y), radius=5, color=(0, 0, 255), thickness=-1)
-            self.occupation_image_show = cv2.resize(self.occupation_image_show, (400, 400))
+            self.occupation_image_show = cv2.resize(self.occupation_image_show, (1100, 400))
             cv2.imshow("Occupation", self.occupation_image_show)
             cv2.waitKey(1)
 
@@ -288,7 +299,7 @@ class ImageOccupation:
                     self.occupation_image_show = cv2.circle(self.occupation_image_show, (closest_goal[1], closest_goal[0]), radius=5, color=(255, 0, 0), thickness=-1)
                     self.occupation_image_show[gradient] = (0,255,0)
                     self.occupation_image_show = cv2.circle(self.occupation_image_show, (self.cam_goal_x, self.cam_goal_y), radius=5, color=(0, 0, 255), thickness=-1)
-                    self.occupation_image_show = cv2.resize(self.occupation_image_show, (400, 400))
+                    self.occupation_image_show = cv2.resize(self.occupation_image_show, (1100, 400))
                     cv2.imshow("Occupation", self.occupation_image_show)
                     cv2.waitKey(1)
 
@@ -304,7 +315,7 @@ class ImageOccupation:
         
         if self.truth_map["BBoxes"] and VISUALIZE: 
             self.occupation_image_show = (self.occupation_image*255).astype(np.uint8)
-            self.occupation_image_show = cv2.resize(self.occupation_image_show, (400, 400))
+            self.occupation_image_show = cv2.resize(self.occupation_image_show, (1100, 400))
             cv2.imshow("Occupation", self.occupation_image_show)
             cv2.waitKey(1)
             #self.occupation_image = np.zeros((self.occupation_image.shape), dtype=bool)

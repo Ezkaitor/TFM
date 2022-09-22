@@ -8,11 +8,11 @@
     <arg name="z" default="0"/>
     <arg name="R" default="0"/>
     <arg name="P" default="0"/>
-    <arg name="Y" default="0"/>
+    <arg name="Y" default="0"/>  <!-- TODO: change to 3.14 or pi -->
     <!-- vehicle model and world -->
     <arg name="est" default="ekf2"/>
     <arg name="vehicle" default="iris"/>
-    <arg name="world" default="$(find drone-test)/worlds/person.world"/>
+    <arg name="world" default="$(find drone-test)/worlds/people.world"/>
     <arg name="sdf" default="$(find drone-test)/models/$(arg vehicle)/$(arg vehicle).sdf"/>
 
     <!-- gazebo configs -->

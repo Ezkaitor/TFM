@@ -21,15 +21,17 @@ image_recieved = False
 image = None
 image_size = [0,0, 3]
 camera = ""
+processed = True
 
 def get_image(cam, msg):
     global image
     global image_recieved
     global image_size
     global camera
+    global processed
 
     show= False
-
+    if not processed: return
     image_size = (msg.width, msg.height, 3)
     image = np.frombuffer(msg.data, dtype=np.uint8).reshape(image_size)
     if show:
@@ -48,6 +50,7 @@ ncs_model_path = Path.home() / "repos/TFM/drone-test/NCS_models/mobilenet_ssd"
 rospy.init_node("mobilenet_ssd")
 
 def main():
+    
     #### INITIALIZE DEVICE ####
     ie = IECore()
 
@@ -107,9 +110,9 @@ def main():
     #    camera_info_received = True
 
     image_sub = rospy.Subscriber('iris/camera/image_raw', Image, partial(get_image, 'single_0'))
-    image_left_sub = rospy.Subscriber('iris/camera_left/image_raw', Image, partial(get_image, 'left_330'))
-    image_center_sub = rospy.Subscriber('iris/camera_center/image_raw', Image, partial(get_image, 'center'))
-    image_right_sub = rospy.Subscriber('iris/camera_right/image_raw', Image, partial(get_image, 'right_30'))
+    image_left_sub = rospy.Subscriber('iris/camera_left/image_raw', Image, partial(get_image, 'left_320'))
+    image_center_sub = rospy.Subscriber('iris/camera_center/image_raw', Image, partial(get_image, 'center_0'))
+    image_right_sub = rospy.Subscriber('iris/camera_right/image_raw', Image, partial(get_image, 'right_40'))
     #camera_info_tp = rospy.Subscriber('iris/camera/camera_info', CameraInfo, get_camera_info)
 
     bb_pub = rospy.Publisher("mobilenet_ros/bounding_boxes", BoundingBoxes, queue_size=1)
@@ -122,8 +125,11 @@ def main():
     global image_size
     global image_recieved
     global camera
+    global processed
+    
     while not rospy.is_shutdown():
         if image_recieved: # and camera_info_received:
+            processed = False
             
             image = cv.cvtColor(image, cv.COLOR_BGR2RGB)
             frame = image.copy()
@@ -160,6 +166,7 @@ def main():
                     bbox.Class = "" # TODO: to be determined
                     
                     if int(obj[1]) > 80: continue
+                    if int(obj[1]) > 1: continue
                     
                     bbox.Class = labels_map[int(obj[1])] if labels_map else str(int(obj[1]))
                     
@@ -183,8 +190,9 @@ def main():
             images_proccessed += 1
             rospy.loginfo(f"Images proccessed {images_proccessed}")
             image_recieved = False
-        
+        processed = True
         rate.sleep()
+        
 
 if __name__ == "__main__":
     main()
